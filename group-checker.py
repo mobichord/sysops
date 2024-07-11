@@ -4,8 +4,7 @@ import requests
 tenant_id = '41e9b618-6728-42ae-8c30-7d4aeabc2a7d'
 client_id = 'd0868b64-0526-4d4a-9df0-3b521ae8e11a'
 client_secret = 'YkG8Q~VyA0pAQswsGgYo0gEm_tEyKSyw_PIGJcr5'
-group_id = ''
-
+ 
 authority_url = f'https://login.microsoftonline.com/{tenant_id}'
 
 app = msal.ConfidentialClientApplication(
@@ -23,8 +22,11 @@ if 'access_token' in token_response:
 #    response = requests.get(f'https://graph.microsoft.com/v1.0/groups/{group_id}/drive/root', headers=headers)
 
     response = requests.get('https://graph.microsoft.com/v1.0/groups?$filter=groupTypes/any(c:c eq \'Unified\')', headers=headers)
+    
     if response.status_code == 200:
         groups = response.json().get('value', [])
+
+        # List and print groups and group IDs.
         for group in groups:
             print(f'Group Name: {group.get("displayName")}, Group ID: {group.get("id")}')
     else:
