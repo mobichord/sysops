@@ -1,10 +1,30 @@
 import msal
 import requests
+import boto3
 import json
 
-tenant_id = '41e9b618-6728-42ae-8c30-7d4aeabc2a7d'
-client_id = 'd0868b64-0526-4d4a-9df0-3b521ae8e11a'
-client_secret = 'YkG8Q~VyA0pAQswsGgYo0gEm_tEyKSyw_PIGJcr5'
+# Function to get secret from AWS Secrets Manager
+def get_secret(secret_name):
+    region_name = "us-west-2"
+
+    # Create a Secrets Manager client
+    client = boto3.client('secretsmanager', region_name=region_name)
+
+    try:
+        get_secret_value_response = client.get_secret_value(SecretId=secret_name)
+    except Exception as e:
+        print(f"Error retrieving secret {secret_name}: {str(e)}")
+        raise e
+
+    # Decrypts secret using the associated KMS key
+    secret = get_secret_value_response['SecretString']
+    return json.loads(secret)
+
+# Retrieve secrets from AWS Secrets Manager
+secrets = get_secret("ms-azure-api-keys")
+tenant_id = secrets['tenant_id']
+client_id = secrets['client_id']
+client_secret = secrets['client_secret']
 
 authority_url = f'https://login.microsoftonline.com/{tenant_id}'
 graph_api_url = 'https://graph.microsoft.com/v1.0/devices'

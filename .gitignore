@@ -3,3 +3,6 @@
 
 # Ignore all CSV files
 *.csv
+
+# Ignore outputs directory
+outputs/
