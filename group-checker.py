@@ -72,7 +72,7 @@ if 'access_token' in token_response:
 
         # Prepare to check activity
         now = datetime.utcnow()
-        thirty_days_ago = now - timedelta(days=30)
+        thirty_days_ago = now - timedelta(days=90)
         active_groups = []
         inactive_groups = []
 
