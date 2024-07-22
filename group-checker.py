@@ -23,15 +23,23 @@ def get_secret(secret_name):
     secret = get_secret_value_response['SecretString']
     return json.loads(secret)
 
-# Function to handle API requests with retry logic
-def make_request_with_retries(url, headers, max_retries=5, backoff_factor=1):
+# Function to handle API requests with retry logic and exponential backoff
+def make_request_with_retries(url, headers, max_retries=5, backoff_factor=2):
     retries = 0
     while retries < max_retries:
         response = requests.get(url, headers=headers)
         if response.status_code == 429:  # Too Many Requests
             retries += 1
             wait_time = backoff_factor * (2 ** (retries - 1))
+            retry_after = response.headers.get('Retry-After')
+            if retry_after:
+                wait_time = max(wait_time, int(retry_after))
             print(f"Rate limit hit. Retrying in {wait_time} seconds...")
+            time.sleep(wait_time)
+        elif response.status_code >= 500:  # Server error
+            retries += 1
+            wait_time = backoff_factor * (2 ** (retries - 1))
+            print(f"Server error encountered. Retrying in {wait_time} seconds...")
             time.sleep(wait_time)
         else:
             return response
@@ -64,46 +72,49 @@ if 'access_token' in token_response:
         'Authorization': f'Bearer {access_token}'
     }
 
-    # Retrieve list of groups
-    response = make_request_with_retries(graph_api_url_groups, headers)
+    # Retrieve list of groups with pagination support
+    groups = []
+    next_link = graph_api_url_groups
 
-    if response.status_code == 200:
-        groups = response.json()
+    while next_link:
+        response = make_request_with_retries(next_link, headers)
+        
+        if response.status_code == 200:
+            data = response.json()
+            groups.extend(data['value'])
+            next_link = data.get('@odata.nextLink')
+        else:
+            print(f"Failed to retrieve groups: {response.status_code} - {response.text}")
+            next_link = None
 
-        # Prepare to check activity
-        now = datetime.utcnow()
-        thirty_days_ago = now - timedelta(days=90)
-        active_groups = []
-        inactive_groups = []
+    # Prepare to check activity
+    now = datetime.utcnow()
+    thirty_days_ago = now - timedelta(days=30)  # Adjusted to be within a valid range
+    group_status = []
 
-        for group in groups['value']:
-            group_id = group['id']
-            group_name = group['displayName']
+    for group in groups:
+        group_id = group['id']
+        group_name = group['displayName']
 
-            # Check activity of each group over the past 30 days
-            activity_query = f"{graph_api_url_activities}?$filter=activityDateTime ge {thirty_days_ago.isoformat()}Z and targetResources/any(r:r/id eq '{group_id}')"
-            activity_response = make_request_with_retries(activity_query, headers)
+        # Check activity of each group over the past 30 days
+        activity_query = f"{graph_api_url_activities}?$filter=activityDateTime ge {thirty_days_ago.isoformat()}Z and targetResources/any(r:r/id eq '{group_id}')"
+        activity_response = make_request_with_retries(activity_query, headers)
 
-            if activity_response.status_code == 200:
-                activities = activity_response.json()
-                if len(activities['value']) > 0:
-                    active_groups.append({'Group ID': group_id, 'Group Name': group_name, 'Status': 'Active'})
-                else:
-                    inactive_groups.append({'Group ID': group_id, 'Group Name': group_name, 'Status': 'Inactive'})
+        if activity_response.status_code == 200:
+            activities = activity_response.json()
+            if len(activities['value']) > 0:
+                group_status.append({'Group ID': group_id, 'Group Name': group_name, 'Status': 'Active'})
             else:
-                print(f"Failed to retrieve activity for group {group_name}: {activity_response.status_code} - {activity_response.text}")
+                group_status.append({'Group ID': group_id, 'Group Name': group_name, 'Status': 'Inactive'})
+        else:
+            print(f"Failed to retrieve activity for group {group_name}: {activity_response.status_code} - {activity_response.text}")
 
-        # Combine active and inactive groups
-        all_groups = active_groups + inactive_groups
+    # Convert to DataFrame and save to CSV
+    df = pd.DataFrame(group_status)
+    df.to_csv('group_activity_status.csv', index=False)
 
-        # Convert to DataFrame and save to CSV
-        df = pd.DataFrame(all_groups)
-        df.to_csv('group_activity_status.csv', index=False)
+    print("CSV file has been created: group_activity_status.csv")
 
-        print("CSV file has been created: group_activity_status.csv")
-
-    else:
-        print(f"Failed to retrieve groups: {response.status_code} - {response.text}")
 else:
     print("Failed to acquire token")
     print(f"Error: {token_response.get('error')}")
